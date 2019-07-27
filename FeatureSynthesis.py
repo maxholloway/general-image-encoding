@@ -28,7 +28,7 @@ import random as rd
 import math
 
 
-class SynthesizeFeatures:
+class FeatureSynthesis:
     def __init__(self, feature_names, total_num_features=768):
         ''' 
         Set instance variables. Defaults to a 16x16 image with three pixel
@@ -98,7 +98,7 @@ class SynthesizeFeatures:
                     if completed(num_feats_to_create): 
                         return concat_new_features(df, new_features) 
                     new_feature_name = f'num|{num_feat_name}|op|{single_feat_op}|'
-                    new_feature = SynthesizeFeatures._apply_single_num_feat_operation(df[num_feat_name], single_feat_op)
+                    new_feature = FeatureSynthesis._apply_single_num_feat_operation(df[num_feat_name], single_feat_op)
                     new_features['num'][new_feature_name] = new_feature
                     num_feats_to_create -= 1
                     
@@ -108,7 +108,7 @@ class SynthesizeFeatures:
                         if completed(num_feats_to_create): 
                             return concat_new_features(df, new_features)
                         new_feature_name = f'num1|{num_feat_name}|num2|{other_num_feat_name}|op|{two_feature_operation}|'
-                        new_feature = SynthesizeFeatures._apply_two_num_feat_operation(df[num_feat_name], df[other_num_feat_name], two_feature_operation)
+                        new_feature = FeatureSynthesis._apply_two_num_feat_operation(df[num_feat_name], df[other_num_feat_name], two_feature_operation)
                         new_features['num'][new_feature_name] = new_feature
                         num_feats_to_create -= 1
             
@@ -120,7 +120,7 @@ class SynthesizeFeatures:
                         if completed(num_feats_to_create):
                             return concat_new_features(df, new_features)
                         new_feature_name = f'bool_feat1|{bool_feat_name}|bool_feat2|{other_bool_feat_name}|op|{bool_op}|'
-                        new_feature = SynthesizeFeatures._apply_two_bool_feat_operation(df[bool_feat_name], df[other_bool_feat_name], bool_op)
+                        new_feature = FeatureSynthesis._apply_two_bool_feat_operation(df[bool_feat_name], df[other_bool_feat_name], bool_op)
                         new_features['bool'][new_feature_name] = new_feature
                         num_feats_to_create -= 1
 
@@ -210,8 +210,8 @@ if __name__ == '__main__':
         boolean=['example_boolean_col_1', 'example_boolean_col_2']
     )
 
-    sf = SynthesizeFeatures(example_feature_names, total_num_features=768)
-    new_feats = sf.synthesize_features(example_df)
+    fs = FeatureSynthesis(example_feature_names, total_num_features=768)
+    new_feats = fs.synthesize_features(example_df)
 
     print(new_feats.head())
 
