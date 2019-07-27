@@ -48,7 +48,7 @@ class FeatureSynthesis:
         def concat_new_features(old_df, new_features_inp):
             new_features_dfs = [new_features_inp[key] for key in new_features_inp.keys()]
             new_feature_lens = [len(nf.columns) for nf in new_features_dfs]
-            print(f'Going to have {len(old_df.columns) + sum(new_feature_lens)} features after concat.')
+            #print(f'Going to have {len(old_df.columns) + sum(new_feature_lens)} features after concat.')
             new_features_dfs.append(old_df)
             return pd.concat( new_features_dfs, axis=1)
         
@@ -58,7 +58,7 @@ class FeatureSynthesis:
         boolean_operations = ('AND', 'OR', 'XOR', 'NAND')
 
         num_feats_to_create = self._total_num_features - len(df_inp.columns)
-        print(f'Going to create {num_feats_to_create} synthetic features')
+        #print(f'Going to create {num_feats_to_create} synthetic features')
         level = 0
         while True:
             feature_names = self._level_to_features[level]
@@ -125,10 +125,10 @@ class FeatureSynthesis:
                         num_feats_to_create -= 1
 
             # Update df and _level_to_features before looping
-            print(f'DF num features: {len(df.columns)}')
+            #print(f'DF num features: {len(df.columns)}')
             df = concat_new_features(df, new_features)
             assert len(df.columns) + num_feats_to_create == self._total_num_features, "Size mismatch; features not appended correctly"
-            print(f'DF num features: {len(df.columns)}')
+            #print(f'DF num features: {len(df.columns)}')
             self._level_to_features[level+1] = FeatureTypes( 
                 numerical = new_features['num'].columns,
                 categorical = new_features['cat'].columns,
