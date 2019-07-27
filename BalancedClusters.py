@@ -332,44 +332,45 @@ class BalancedClusters:
                 counter += 1
         return self.cluster_dict
 
-# Testing BalanceClusters
-import numpy as np
-def make_cluster(approx_centroid, noise_max, num_elements):
-    '''
-    Generates a cluster-ish area around the
-    approx_centroid coordinates.
-    
-    Returns an 
-    '''
-    cluster = []
-    for i in range(num_elements):
-        noise = np.random.uniform(low=-noise_max, high=noise_max, size=len(approx_centroid))
-        coordinates = np.array(approx_centroid) + noise
-        cluster += [coordinates]
-    return np.array(cluster)
+if __name__ == '__main__':
+    # Testing BalanceClusters
+    import numpy as np
+    def make_cluster(approx_centroid, noise_max, num_elements):
+        '''
+        Generates a cluster-ish area around the
+        approx_centroid coordinates.
 
-approx_centroids = [[0, 0], [10, 0], [0, 10], [10, 10]]
-clusters = {
-    'A' : make_cluster([0, 0], 2, 100), # based around (0, 0)
-    'B' : make_cluster([10, 0], 2, 120), # based around (10, 0)
-    'C' : make_cluster([0, 10], 2, 85), # based around (0, 10)
-    'D' : make_cluster([10, 10], 2, 110) # based around (10, 10)
-}
+        Returns an 
+        '''
+        cluster = []
+        for i in range(num_elements):
+            noise = np.random.uniform(low=-noise_max, high=noise_max, size=len(approx_centroid))
+            coordinates = np.array(approx_centroid) + noise
+            cluster += [coordinates]
+        return np.array(cluster)
 
-from time import time
-start = time()
-simpleclusters = BalancedClusters(clusters, 'smallest')
-balanced_clusters_move_to_smallest = simpleclusters.balance_clusters(max_iterations=1000, verbose='none')
-end = time()
-print(f"Finished simpler way in {end-start} seconds.")
-simpleclusters.plot_clusters()
-print(simpleclusters.get_all_group_sizes())
+    approx_centroids = [[0, 0], [10, 0], [0, 10], [10, 10]]
+    clusters = {
+        'A' : make_cluster([0, 0], 2, 100), # based around (0, 0)
+        'B' : make_cluster([10, 0], 2, 120), # based around (10, 0)
+        'C' : make_cluster([0, 10], 2, 85), # based around (0, 10)
+        'D' : make_cluster([10, 10], 2, 110) # based around (10, 10)
+    }
+
+    from time import time
+    start = time()
+    simpleclusters = BalancedClusters(clusters, 'smallest')
+    balanced_clusters_move_to_smallest = simpleclusters.balance_clusters(max_iterations=1000, verbose='none')
+    end = time()
+    print(f"Finished simpler way in {end-start} seconds.")
+    simpleclusters.plot_clusters()
+    print(simpleclusters.get_all_group_sizes())
 
 
-optimalclusters = BalancedClusters(clusters, 'optimal')
-start = time()
-balanced_clusters_move_to_optimal = optimalclusters.balance_clusters(verbose='none')
-end = time()
-print(f"Finished more complicated way in {end-start} seconds.")
-print(optimalclusters.get_all_group_sizes())
-optimalclusters.plot_clusters()
+    optimalclusters = BalancedClusters(clusters, 'optimal')
+    start = time()
+    balanced_clusters_move_to_optimal = optimalclusters.balance_clusters(verbose='none')
+    end = time()
+    print(f"Finished more complicated way in {end-start} seconds.")
+    print(optimalclusters.get_all_group_sizes())
+    optimalclusters.plot_clusters()
