@@ -29,7 +29,7 @@ import math
 
 
 class SynthesizeFeatures:
-    def __init__(self, feature_names, image_side_len=16, channels_per_pixel=3):
+    def __init__(self, feature_names, total_num_features=768):
         ''' 
         Set instance variables. Defaults to a 16x16 image with three pixel
         channels, such as with a 16x16 RGB image.
@@ -37,32 +37,7 @@ class SynthesizeFeatures:
         # TODO: build in type checking; features_names must be of type FeatureTypes
         self._level_to_features = dict()
         self._level_to_features[0] = feature_names # level 0 features
-        self._total_num_features = (image_side_len ** 2) * channels_per_pixel
-        print(f'Aiming to have a total of {self._total_num_features} features.')
-        assert SynthesizeFeatures._valid_image_side_len(image_side_len), "Image side length is invalid."
-        
-    @staticmethod
-    def _valid_image_side_len(image_side_len, max_pixels=4096):
-        ''' 
-        In order to be valid, the total number of pixels must
-        be a power of four. This is because the feature placement
-        algorithm divides the image into quadrants, subquadrants,
-        subsubquadrants, ... to construct an image from the features.
-        
-        Optional pixel_threshold argument specifies maximum number of pixels;
-        this defaults to 4096, the number of pixels in a 64x64 pixel image.
-        '''
-        num_pixels = image_side_len ** 2
-        if num_pixels > max_pixels: 
-            return False
-        
-        i = 0
-        while 4 ** i <= num_pixels:
-            if 4**i == num_pixels:
-                return True
-            else:
-                i += 1
-        return False
+        self._total_num_features = total_num_features
     
     def synthesize_features(self, df_inp):
         df = df_inp.copy()
@@ -235,7 +210,7 @@ if __name__ == '__main__':
         boolean=['example_boolean_col_1', 'example_boolean_col_2']
     )
 
-    sf = SynthesizeFeatures(example_feature_names, image_side_len=16, channels_per_pixel=3)
+    sf = SynthesizeFeatures(example_feature_names, total_num_features=768)
     new_feats = sf.synthesize_features(example_df)
 
     print(new_feats.head())
