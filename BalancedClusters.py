@@ -315,7 +315,7 @@ class BalancedClusters:
         if ((small_group_name != None) and (large_group_name != None) and (moving_element.size != 0)):
             self.move_element(small_group_name, large_group_name, moving_element, verbose)
         
-    def balance_clusters(self, max_iterations=100, verbose='text'):
+    def balance_clusters(self, max_iterations=-1, verbose='text'):
         '''
         Description:
             This method takes in clusters and then balances all of the clusters so
@@ -336,7 +336,7 @@ class BalancedClusters:
         # cluster_dict = cluster_dict_inp.copy() # copy, so as not to edit original
 
         counter = 0 
-        while counter < max_iterations:
+        while counter < max_iterations or max_iterations == -1:
             cluster_dict_old = self.cluster_dict.copy()
             self.element_mover(verbose) # element_mover should not return, but instead edit
             if StaticMethods.dictionary_check_equal(cluster_dict_old, self.cluster_dict): 
