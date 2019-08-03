@@ -2,37 +2,45 @@ from math import floor # BalancedClusters.get_smaller_than_average_cluster_names
 import pandas as pd # BalancedClusters.plot_clusters
 import seaborn as sns # BalancedClusters.plot_clusters
 import matplotlib.pyplot as plt # BalancedClusters.plot_clusters
-
+import numpy as np
+from functools import reduce
 
 class ElementMovers:
     move_to_smallest = 'smallest'
     move_to_optimal_smaller = 'optimal'
 
-class StaticMethods:
+class StaticMethods: #good
     '''
     Methods that are used by BalancedClusters, but
     not unique to it.
     '''
     @staticmethod
-    def argmin(D):
+    def argmin(D): #good
         '''
         Argmin for a dictionary, D.
         '''
         return min(D, key=D.get)
 
     @staticmethod
-    def dictionary_check_equal(d1, d2):
+    def dictionary_check_equal(d1, d2): #good
         '''
         Checks whether two cluster dictionaries share
         the exact same elements.
         '''
         if d1.keys() != d2.keys(): return False
-        num_equal = sum([1 if(np.array_equal(d1[k], d2[k])) else 0 for k in d1.keys()])
+        num_equal = sum([ d1[k].equals(d2[k]) for k in d1.keys()])
         return True if num_equal == len(d1.keys()) else False
 
     @staticmethod
-    def distance_metric( a_coords, b_coords):
+    def distance_metric( a_coords, b_coords): # good
         '''
+        summary:
+            compute Euclidean distance between a_coords and b_coords
+        parameters:
+            a_coords: 1 dimensional numpy.array of length N
+            b_coords: 1 dimensional numpy.array of length N
+        returns:
+            1 dimensional numpy.array of length N
         This is flexible, but right now it's Euclidean
         distance. It could alternatively be absolute distance,
         or absolute distance cubed, or whatever.'''
@@ -40,8 +48,7 @@ class StaticMethods:
         return np.linalg.norm(difference_array)
 
 class BalancedClusters:
-
-    def __init__(self, cluster_dict_inp, element_mover):
+    def __init__(self, cluster_dict_inp, element_mover): #good
         '''
         Summary:
             Constructor, setting class variables
@@ -49,29 +56,34 @@ class BalancedClusters:
             element_mover: a function that takes in the parameters below and then edits
                            the cluster dictionary taken as input
         '''
-        self.cluster_dict = cluster_dict_inp.copy() # copy once, so as to not edit
+        self.cluster_dict = cluster_dict_inp.copy() # interface does not interfere with input data
         if element_mover == ElementMovers.move_to_smallest:
             self.element_mover = self.move_element_to_smallest_cluster
         elif element_mover == ElementMovers.move_to_optimal_smaller:
             self.element_mover = self.move_element_to_optimal_smaller_cluster
 
-    def get_centroid(self, cluster_elements):
-        return cluster_elements.mean(axis=0)
+    def get_centroid(self, cluster_elements): #good
+        '''
+        :param cluster_elements: MxN pandas.DataFrame, where each row is an element, and each column is a dimension
+        :return: N-dimensional numpy.array
+        '''
+        return cluster_elements.values.mean(axis=0)
 
-    def get_centroids(self): return {k : self.get_centroid(self.cluster_dict[k]) for k in self.cluster_dict.keys()}
+    def get_centroids(self): #good
+        return {k : self.get_centroid(self.cluster_dict[k]) for k in self.cluster_dict.keys()}
 
-    def get_group_num_elements(self, group_name):
+    def get_group_num_elements(self, group_name): #good
         return self.cluster_dict[group_name].shape[0]
 
-    def get_all_group_sizes(self):
+    def get_all_group_sizes(self): #good
         return {group_name : self.get_group_num_elements(group_name) for group_name in self.cluster_dict.keys()}
 
-    def get_group_with_fewest_elements(self):
+    def get_group_with_fewest_elements(self): #good
         '''
         Given a dictionary, mapping from group name
-        to a numpy array of group element coordinates,
+        to a pandas.DataFrame of group element coordinates,
         return the name (AKA key) of the group that has
-        the fewest number of elements. Ties are not handled
+        the fewest number of elements. Ties are handled
         arbitrarily.
         '''
         group_names = list(self.cluster_dict.keys()) # create indexable list
@@ -79,23 +91,26 @@ class BalancedClusters:
         index_of_min = np.argmin(num_elements_list) # find index of min for the key
         return group_names[index_of_min] # return the key at the index where the min occurred
 
-    def get_smaller_than_average_cluster_names(self):
+    def get_total_num_elements(self): #untested, but no numpy/pandas issues
+        group_sizes = self.get_all_group_sizes()
+        return reduce((lambda last, value: value + last), group_sizes.values(), 0)
+
+    def get_smaller_than_average_cluster_names(self): # should be fine
         '''
         Returns names of clusters that need to increase their
         number of elements in order to balance the clusters
         over all. This means any cluster with fewer elements
         than the floor of the average will be returned.
         '''
-        total_num_elements = sum([self.get_group_num_elements(group_name) for group_name in self.cluster_dict.keys()])
+        total_num_elements = self.get_total_num_elements()
         avg_group_size = total_num_elements / len(self.cluster_dict.keys())
-        group_sizes = self.get_all_group_sizes()
         smaller_than_avg_cluster_names = []
         for group_name in self.cluster_dict.keys():
-            if ( self.get_group_num_elements(group_name) <= floor(avg_group_size) ):
+            if ( self.get_group_num_elements(group_name) <= floor(avg_group_size) ): # behaves better with <=
                 smaller_than_avg_cluster_names += [group_name]
         return smaller_than_avg_cluster_names
 
-    def plot_clusters(self):
+    def plot_clusters(self): # likely won't work, due to how it iterates over rows; can easily be changed
         '''
         The gist of this is to create a
         dataframe with columns being
@@ -103,24 +118,13 @@ class BalancedClusters:
         then plotting this in seaborn
         with the hue being the group name.
         '''
-        def get_total_num_elements():
-            '''
-            Just finds how many elements there
-            are total in the cluster_dict (not
-            how many numbers, but how many
-            elements; an element may have
-            multiple dimensions)'''
-            total = 0
-            for group_name in self.cluster_dict.keys():
-                total += self.get_group_num_elements(group_name)
-            return total
-        
-        num_elements = get_total_num_elements()
+
+        num_elements = self.get_total_num_elements()
         all_elements = [ [0 for j in range(3)] for i in range(num_elements) ]
         row_counter = 0
         for group_name in self.cluster_dict.keys():
-            cluster = self.cluster_dict[group_name]
-            for element in cluster:
+            cluster_array = self.cluster_dict[group_name].values
+            for element in cluster_array:
                 all_elements[row_counter] = [group_name] + element.tolist()
                 row_counter += 1
         all_elements_df = pd.DataFrame(all_elements, columns=['group_name', 'x', 'y'])
@@ -130,7 +134,7 @@ class BalancedClusters:
     
     # ## Important Methods
 
-    def get_distances_from_small_group_centroid(self, small_group_name):
+    def get_distances_from_small_group_centroid(self, small_group_name): # good, if helper methods are taken care of
         '''
         Goes and looks at all specified groups in a given
         cluster dictionary. It reports the distance from
@@ -166,29 +170,42 @@ class BalancedClusters:
                 group_elements = self.cluster_dict[group_name]
                 # This could be sped up with list comprehension, but not implementing at this stage
                 # so as to preserve clarity
-                for element in group_elements:
+
+                # iterate over the rows of the dataframe; should be fine using .values, since static methods require numpy arrays
+                for example in group_elements.values:
                     distance_to_small_group_centroid = StaticMethods.distance_metric(
-                        small_group_centroid, element)
+                        small_group_centroid, example)
                     distances_from_small_group_centroid[distance_to_small_group_centroid] = {
-                        'group_name':group_name, 'element':element
+                        'group_name':group_name, 'element':example
                     }
         return distances_from_small_group_centroid
 
-    def move_element(self, small_group_name, large_group_name, moving_element, verbose):
-        # cluster_dict = cluster_dict_inp.copy()
-        
+    def move_element(self, small_group_name, large_group_name, moving_element, verbose): #good, but needs testing
+        '''
+        Summary
+
+        :param small_group_name: str
+        :param large_group_name: str
+        :param moving_element: numpy.array that represents an example in the cluster_dict.values array
+        :param verbose:
+        :return:
+        '''
         # Get the index of the row that should be taken out of the old cluster
-        index_of_deletion = np.argwhere(self.cluster_dict[large_group_name]==moving_element)[0, 0]
+        numerical_index_of_deletion = np.argwhere(self.cluster_dict[large_group_name].values==moving_element)[0, 0]
         # Move row out of old cluster
-        self.cluster_dict[large_group_name] = np.delete(self.cluster_dict[large_group_name], index_of_deletion, axis=0)
-        # Move row to new, small cluster
-        self.cluster_dict[small_group_name] = np.append( self.cluster_dict[small_group_name], [moving_element], axis=0 )
+        old_row_name = self.cluster_dict[large_group_name].index[numerical_index_of_deletion]
+        self.cluster_dict[large_group_name] = self.cluster_dict[large_group_name].drop(index=old_row_name, inplace=False)
+        # self.cluster_dict[large_group_name] = np.delete(self.cluster_dict[large_group_name], index_of_deletion, axis=0)
+        # Move row to new, small cluster; due to how data must be presented to DataFrame constructor, make a list of numpy.arrays in [moving_element]
+        row = pd.DataFrame(data=[moving_element], index=[old_row_name], columns=self.cluster_dict[large_group_name].columns)
+        self.cluster_dict[small_group_name] = self.cluster_dict[small_group_name].append(row, sort=False)
+        # self.cluster_dict[small_group_name] = np.append( self.cluster_dict[small_group_name], [moving_element], axis=0 )
 
         if verbose.lower() in ('text', 'all'): print(f'Moving {moving_element} from cluster '
                                                          + f'{large_group_name}'
                                                           + f' to cluster {small_group_name}')
 
-    def move_element_to_smallest_cluster(self, verbose):
+    def move_element_to_smallest_cluster(self, verbose): #good, but needs testing
         '''
         Description:
             This method takes in clusters and then moves an element from a list with more
@@ -261,7 +278,7 @@ class BalancedClusters:
             element = element_to_move_info['element']
             return (smallest_move_small_group_name, element_previous_group_name, element)
         else:
-            return (None, None, None)
+            return None, None, None
 
     def move_element_to_optimal_smaller_cluster(self, verbose):
         '''
@@ -283,7 +300,7 @@ class BalancedClusters:
             Returns a new cluster dictionary.
         '''
         
-        if verbose.lower() in ('text', 'all'): print(f'Group sizes: {get_all_group_sizes()}')
+        if verbose.lower() in ('text', 'all'): print(f'Group sizes: {self.get_all_group_sizes()}')
         
         # Get names of clusters that could receive more elements
         small_group_names = self.get_smaller_than_average_cluster_names()
@@ -328,7 +345,7 @@ class BalancedClusters:
             else:
                 # Plotting only works for 2 dimensional data. This checks if the data is 2D
                 is2d = len(self.cluster_dict[list(self.cluster_dict.keys())[0]][0]) == 2
-                if verbose.lower() in ('plot', 'all') and is2d: plot_clusters(self.cluster_dict)
+                if verbose.lower() in ('plot', 'all') and is2d: self.plot_clusters(self.cluster_dict)
                 counter += 1
         return self.cluster_dict
 
@@ -351,10 +368,10 @@ if __name__ == '__main__':
 
     approx_centroids = [[0, 0], [10, 0], [0, 10], [10, 10]]
     clusters = {
-        'A' : make_cluster([0, 0], 2, 100), # based around (0, 0)
-        'B' : make_cluster([10, 0], 2, 120), # based around (10, 0)
-        'C' : make_cluster([0, 10], 2, 85), # based around (0, 10)
-        'D' : make_cluster([10, 10], 2, 110) # based around (10, 10)
+        'A' : pd.DataFrame(make_cluster([0, 0], 2, 100)), # based around (0, 0)
+        'B' : pd.DataFrame(make_cluster([10, 0], 2, 120)), # based around (10, 0)
+        'C' : pd.DataFrame(make_cluster([0, 10], 2, 85)), # based around (0, 10)
+        'D' : pd.DataFrame(make_cluster([10, 10], 2, 110)) # based around (10, 10)
     }
 
     from time import time
