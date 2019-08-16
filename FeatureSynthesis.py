@@ -792,7 +792,7 @@ class FeatureSynthesis:
         self.__level_to_feature_names = all_features.get_level_to_feat_names()
         return
 
-    def get_feature_names(self, data_type):
+    def get_feature_names(self, data_type) -> List[str]:
         """
         :param data_type: string denoting data type; use FeatureDataTypes class variables for more secure code
         :return: list<string> with feature names

@@ -1,9 +1,26 @@
-from typing import List
+import random as rd
+import string
+import pandas as pd
+from typing import List, Tuple
+import PIL # keep it general, so as to be explicit when using the library
+
+import numpy as np
+from sklearn.cluster import KMeans
+from sklearn.preprocessing import LabelEncoder, MinMaxScaler
+
+from BalancedClusters import BalancedClusters
+from FeatureSynthesis import FeatureSynthesis, FeatureTypes
+
+
 
 class IncorrectTypeException(Exception):
     def __init__(self, variable_name, expected_type, actual_type):
         message = f'Expected type of {variable_name} to be {expected_type}' + f', but it was actually of type {actual_type}.'
         super(IncorrectTypeException, self).__init__(message)
+
+class ImageTypes:
+    RGB: str = 'RGB'
+
 
 class Directions:
     """
@@ -123,14 +140,7 @@ class PixelLocation:
         i, j = int(horiz_index_binary, binary), int(vert_index_binary, binary)
         return (i, j)
 
-import random as rd
-import string
-import pandas as pd
-import numpy as np
-from sklearn.cluster import KMeans
 
-from BalancedClusters import BalancedClusters
-from FeatureSynthesis import FeatureSynthesis, FeatureTypes
 
 class FeatureDataTypes:
     Categorical = 'categorical'
@@ -138,7 +148,6 @@ class FeatureDataTypes:
     Boolean = 'bool'
     Date = 'date'
 
-from sklearn.preprocessing import LabelEncoder, MinMaxScaler
 class PreprocessingTools:
 
     @staticmethod
@@ -223,7 +232,9 @@ class ClusterAlgos:
     K_means = 'k-means'
 
 class ClusterTools:
-    def _get_unique_column_name_helper(column_names, _num_times_repeated=0):
+
+    @staticmethod
+    def __get_unique_column_name_helper(column_names, _num_times_repeated=0) -> str:
         '''
         Given a collection of column names, generate a column name that is
         not currently in the set of column names.
@@ -236,19 +247,20 @@ class ClusterTools:
         else:
             # the more characters, the less likely the method will need to repeat
             num_characters = 30
-            rand_str = ClusterTools._random_string_helper(num_characters)
-            if rand_str in column_names.values:
-                return ClusterTools._get_unique_column_name_helper(column_names, _num_times_repeated+1)
+            rand_str = ClusterTools.__random_string_helper(num_characters)
+            if rand_str in column_names.values.tolist():
+                return ClusterTools.__get_unique_column_name_helper(column_names, _num_times_repeated + 1)
             else:
                 return rand_str
 
-    def _random_string_helper(num_chars):
+    @staticmethod
+    def __random_string_helper(num_chars):
         valid_characters = string.ascii_letters + string.digits
         chars = [rd.choice(valid_characters) for _ in range(num_chars)]
         return ''.join(chars)
 
     @staticmethod
-    def make_clusters(inp_data, num_clusters, cluster_type):
+    def make_clusters(inp_data: pd.DataFrame, num_clusters, cluster_type):
         '''
         summary
             create clusters
@@ -263,8 +275,8 @@ class ClusterTools:
             input data
         '''
         
-        data = inp_data.copy()
-        label_col_name = ClusterTools._get_unique_column_name_helper(data.columns)
+        data: pd.DataFrame = inp_data.copy()
+        label_col_name = ClusterTools.__get_unique_column_name_helper(data.columns)
         if cluster_type == ClusterAlgos.K_means:
             fit_kmeans = KMeans(num_clusters).fit(data)
             data[label_col_name] = fit_kmeans.labels_
@@ -280,13 +292,33 @@ class ClusterTools:
             clusters[cluster_name] = data.loc[indices].drop(columns=[label_col_name])
         return clusters
 
+
 class ImageFromTable:
     _DEFAULT_CLUSTER_TYPE = ClusterAlgos.K_means
     
-    def __init__(self, feature_types: FeatureTypes, image_side_len: int =16, num_channels: int =3):
-        self.image_side_len: int = image_side_len
-        self.num_channels: int = num_channels
-        self._total_num_features: int = (image_side_len**2)*num_channels
+    def __init__(self, feature_types: FeatureTypes, image_side_len: int = 16, image_type: str = None,
+                 num_channels: int = None, channel_value_range: Tuple[float, float] = None):
+        """
+
+        :param feature_types:
+        :param image_side_len:
+        :param image_type:
+        :param num_channels:
+        :param channel_value_range: includes lower bound; mathematically, this set is [0, N)
+        """
+        # If user enters image_type, then automatically presume channel_value_range
+        if image_type == ImageTypes.RGB:
+            num_channels = 3
+            channel_value_range = (0, 256)
+        else:
+            assert (num_channels is not None) and (channel_value_range is not None), \
+                'Must specify "num_channels" and "channel_value_range" if "image_type" is not specified.'
+
+        self.__image_side_len: int = image_side_len
+        self.__num_channels: int = num_channels
+        self.__channel_value_range: Tuple[float, float] = channel_value_range
+        self.__total_num_features: int = (image_side_len ** 2) * num_channels
+
         self._feature_types: FeatureTypes = feature_types
         self.__has_been_fit = False
         self.__feature_synthesizer: FeatureSynthesis = None
@@ -375,7 +407,7 @@ class ImageFromTable:
         returns
             Nothing, just populates self._feature_name_image
         """
-        if ImageFromTable._num_examples(x_transpose_df) == self.num_channels:
+        if ImageFromTable._num_examples(x_transpose_df) == self.__num_channels:
             # populate the three channels at the specified location in the picture
             self.__populate_pixel_with_feature_names(location_descriptor, x_transpose_df)
         else:
@@ -423,7 +455,7 @@ class ImageFromTable:
         self.__has_been_fit = False
         # Generate a bunch of features
         fs = FeatureSynthesis()
-        synthetic_features = fs.fit(features, self._feature_types, self._total_num_features,
+        synthetic_features = fs.fit(features, self._feature_types, self.__total_num_features,
                                     check_feature_similarity=True)
         
         cat_col_names = fs.get_feature_names(FeatureDataTypes.Categorical)
@@ -434,7 +466,7 @@ class ImageFromTable:
         # Initialize feature images
         max_feature_name_len = max( [len(feature_name) for feature_name in synthetic_features.columns.values] )
         self.__feature_name_image = ImageFromTable.__make_blank_image_array(
-            str, self.image_side_len, self.num_channels, max_feature_name_len)
+            str, self.__image_side_len, self.__num_channels, max_feature_name_len)
         self.__flattened_feature_name_image = self.__feature_name_image.flatten('C')
 
         # Do feature name thing to get image of feature names
@@ -448,7 +480,7 @@ class ImageFromTable:
         self.__feature_synthesizer = fs
         return
 
-    def transform(self, features):
+    def transform(self, features: pd.DataFrame) -> pd.DataFrame:
         """
 
         :param features:
@@ -464,21 +496,47 @@ class ImageFromTable:
         # as the flattened_feature_name_image, making each row an image.
         pertinent_features = transformed_features[self.__flattened_feature_name_image]
 
-        return pertinent_features
+        # transforms to same number of columns, but in range [0, 1] for all values
+        cat_col_names = self.__feature_synthesizer.get_feature_names(FeatureDataTypes.Categorical)
+        preprocessed_features = PreprocessingTools.preprocess_data(pertinent_features, cat_col_names)
 
-    def fit_and_transform(self, features):
-        """
-        summary
-            Performs the fit and transform operations on the features,
-            and then returns the result of the transform operation.
-        parameters
-            features: a DataFrame in typical data science format 
-            (rows are examples, columns are features)
-        returns
-            a DataFrame in the image format (vector of #pixels*#channels)
-        """
-        self.fit(features)
-        return self.transform(features)
+        def scale(x):
+            lower_bound, upper_bound = self.__channel_value_range
+            value_range = upper_bound-lower_bound
+            scaled = lower_bound + x*value_range
+            if scaled > upper_bound:
+                return upper_bound
+            if scaled < lower_bound:
+                return lower_bound
+            else:
+                return scaled
+
+        scaled_features = preprocessed_features.applymap(scale)
+
+        return scaled_features
+
+    @staticmethod
+    def __make_image(example: pd.Series, width: int, height: int, image_type: str) -> PIL.Image:
+        num_channels = None
+        if image_type == ImageTypes.RGB:
+            num_channels = 3
+        else:
+            raise Exception("Image type specified is no longer valid.")
+
+        # Reshape into width-by-height-by-num_channels 3D array
+        example_arr: np.array = example.values
+        image_arr = np.reshape(example_arr, (height, width, num_channels))
+
+        # Convert into image
+        img = PIL.Image.fromarray(image_arr, image_type)
+
+        return img
+
+    @staticmethod
+    def show_image(example: pd.Series, width: int, height: int, image_type: str) -> None:
+        img = ImageFromTable.__make_image(example, width, height, image_type)
+        img.show()
+        return
 
 if __name__ == '__main__':
     def make_examples_helper(n_rows):
@@ -502,13 +560,21 @@ if __name__ == '__main__':
         )
         return df, feature_names
 
-
+    # Get data
     example_df, example_feature_names = make_examples_helper(100)
 
-    image16by16by3 = ImageFromTable(example_feature_names, image_side_len=4, num_channels=3)
+    # Fit an image to the data
+    image_side_len = 4
+    image_type = ImageTypes.RGB
+    image16by16by3 = ImageFromTable(example_feature_names, image_side_len = image_side_len, image_type = image_type)
     image16by16by3.fit(example_df)
 
+    # Transform the image on new data
     new_example_features, _ = make_examples_helper(10)
     transformed_images = image16by16by3.transform(new_example_features)
+
+    # See one of the resulting images
+    first_image_series = transformed_images.iloc[0] # just use the first element as an example
+    ImageFromTable.show_image(first_image_series, image_side_len, image_side_len, image_type)
 
     pass
