@@ -344,7 +344,8 @@ class BalancedClusters:
                 return self.cluster_dict # no changes were made to cluster dictionary, so return it
             else:
                 # Plotting only works for 2 dimensional data. This checks if the data is 2D
-                is2d = len(self.cluster_dict[list(self.cluster_dict.keys())[0]][0]) == 2
+                first_key = list(self.cluster_dict.keys())[0]
+                is2d = self.cluster_dict[first_key].columns.size == 2
                 if verbose.lower() in ('plot', 'all') and is2d: self.plot_clusters(self.cluster_dict)
                 counter += 1
         return self.cluster_dict

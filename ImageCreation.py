@@ -1,11 +1,12 @@
 import random as rd
 import string
+import os
 import pandas as pd
 from typing import List, Tuple
 import PIL # keep it general, so as to be explicit when using the library
 
 import numpy as np
-from sklearn.cluster import KMeans
+from sklearn.cluster import KMeans, AgglomerativeClustering
 from sklearn.preprocessing import LabelEncoder, MinMaxScaler
 
 from BalancedClusters import BalancedClusters
@@ -31,6 +32,7 @@ class Directions:
     Up = 'u'
     Down = 'd'
 
+
 class _Direction:
     """
     Stores the horizontal and vertical components of a direction.
@@ -54,9 +56,11 @@ class _Direction:
         else:
             self.horizontal, self.vertical = Directions.Right, Directions.Down
 
+
 class DirectionTypes:
     Horizontal = 'horizontal'
     Vertical = 'vertical'
+
 
 class PixelLocation:
     def __init__(self):
@@ -148,6 +152,7 @@ class FeatureDataTypes:
     Boolean = 'bool'
     Date = 'date'
 
+
 class PreprocessingTools:
 
     @staticmethod
@@ -228,8 +233,11 @@ class PreprocessingTools:
 
         return pd.DataFrame(scaled_values, index=df_inp.index, columns=df_inp.columns)
 
+
 class ClusterAlgos:
     K_means = 'k-means'
+    Agglomerative = 'agglomerative'
+
 
 class ClusterTools:
 
@@ -280,12 +288,15 @@ class ClusterTools:
         if cluster_type == ClusterAlgos.K_means:
             fit_kmeans = KMeans(num_clusters).fit(data)
             data[label_col_name] = fit_kmeans.labels_
+        elif cluster_type == ClusterAlgos.Agglomerative:
+            fit_agglomerative: AgglomerativeClustering = AgglomerativeClustering(num_clusters).fit(data)
+            data[label_col_name] = fit_agglomerative.labels_
         else:
             raise Exception(f'cluster_type "{cluster_type}" is not a valid type. Try "{ClusterAlgos.K_means}"')
         
         # Create a column in the dataframe corresponding to the cluster label of the row,
         # then create clusters by grouping the dataframe by that column
-        cluster_name_to_indices = data.groupby(label_col_name).groups # a dictionary from label to row-indices
+        cluster_name_to_indices = data.groupby(label_col_name).groups  # a dictionary from label to row-indices
         clusters = dict()
         for cluster_name in cluster_name_to_indices.keys():
             indices = cluster_name_to_indices[cluster_name]
@@ -294,39 +305,44 @@ class ClusterTools:
 
 
 class ImageFromTable:
-    _DEFAULT_CLUSTER_TYPE = ClusterAlgos.K_means
-    
-    def __init__(self, feature_types: FeatureTypes, image_side_len: int = 16, image_type: str = None,
-                 num_channels: int = None, channel_value_range: Tuple[float, float] = None):
-        """
+    """
+    Objects that perform all actions to convert from tabular data to image data.
+    """
 
+    __DEFAULT_CLUSTER_TYPE = ClusterAlgos.K_means
+    __MAX_PIXELS_MAGIC_VALUE = -1
+    
+    def __init__(self, feature_types: FeatureTypes, image_type: str, image_side_len: int = 16):
+        """
+        Set object properties
         :param feature_types:
         :param image_side_len:
         :param image_type:
         :param num_channels:
-        :param channel_value_range: includes lower bound; mathematically, this set is [0, N)
+        :param channel_value_range: includes lower bound, excludes upper bound;
+                this is the set [lower_bound, upper_bound)
         """
-        # If user enters image_type, then automatically presume channel_value_range
+
+        # Initialize known values
         if image_type == ImageTypes.RGB:
-            num_channels = 3
-            channel_value_range = (0, 256)
+            self.__num_channels: int = 3
+            self.__channel_value_range: Tuple[float, float] = (0.0, 256.0)
         else:
-            assert (num_channels is not None) and (channel_value_range is not None), \
-                'Must specify "num_channels" and "channel_value_range" if "image_type" is not specified.'
+            raise Exception('The parameter "image_type" was not valid. Check spelling')
 
+        self.__image_type: str = image_type
         self.__image_side_len: int = image_side_len
-        self.__num_channels: int = num_channels
-        self.__channel_value_range: Tuple[float, float] = channel_value_range
-        self.__total_num_features: int = (image_side_len ** 2) * num_channels
-
+        self.__total_num_features: int = (image_side_len ** 2) * self.__num_channels
         self._feature_types: FeatureTypes = feature_types
         self.__has_been_fit = False
+
+        # Declare unknown values
         self.__feature_synthesizer: FeatureSynthesis = None
         self.__flattened_feature_name_image: List[str] = None
         return
 
     @staticmethod
-    def __valid_image_side_len(image_side_len, max_pixels=-1):
+    def __valid_image_side_len(image_side_len, max_pixels=__MAX_PIXELS_MAGIC_VALUE) -> bool:
         ''' 
         In order to be valid, the total number of pixels must
         be a power of four. This is because the feature placement
@@ -337,7 +353,7 @@ class ImageFromTable:
         this defaults to 4096, the number of pixels in a 64x64 pixel image.
         '''
         num_pixels = image_side_len ** 2
-        if (num_pixels > max_pixels) or (max_pixels == -1):
+        if (num_pixels > max_pixels) or (max_pixels == ImageFromTable.__MAX_PIXELS_MAGIC_VALUE):
             return False
         
         i = 0
@@ -375,11 +391,10 @@ class ImageFromTable:
             try:
                 self.__feature_name_image[pixel_i][pixel_j][k] = feature_name
             except Exception:
-                print(f'')
-                print(f'i: {pixel_i}, j:{pixel_j}')
+                print(f'Tried to populate pixel array in coordinate i: {pixel_i}, j: {pixel_j}.')
         return 
 
-    def _num_examples(df_inp: pd.DataFrame):
+    def __num_examples(df_inp: pd.DataFrame):
         ''' 
         Number of examples is the number of rows in a regular
         array, and thus the number of columns in a transposed array.
@@ -395,39 +410,48 @@ class ImageFromTable:
             raise Exception(f'Expected transposed_arr to be of type {df_type}, but '
                            + f'the value passed was of type {actual_type}')
 
-    def _populate_image_with_feature_names(self, x_transpose_df, location_descriptor=PixelLocation(),
-                                          cluster_type = _DEFAULT_CLUSTER_TYPE):
+    def __populate_image_with_feature_names_helper(self, x_transpose_df, cluster_type, location_descriptor) -> None:
         """
-        summary
-            Groups feature names into an image by location; does so in-place to the instance variable
-            self._feature_name_image
-        parameters
-            x_transpose_df: dataframe where rows are 
-            location_description: a list of strings of 
-        returns
-            Nothing, just populates self._feature_name_image
+        Groups feature names into an image by location; does so in-place to the instance variable
+        self._feature_name_image.
+        :param x_transpose_df:
+        :param cluster_type:
+        :param location_descriptor:
+        :return:
         """
-        if ImageFromTable._num_examples(x_transpose_df) == self.__num_channels:
+        if ImageFromTable.__num_examples(x_transpose_df) == self.__num_channels:
             # populate the three channels at the specified location in the picture
             self.__populate_pixel_with_feature_names(location_descriptor, x_transpose_df)
         else:
             # get balanced clusters for each quadrant
             # must be a dictionary from name to 2D numpy array
             clusters = ClusterTools.make_clusters(inp_data=x_transpose_df, num_clusters=4, cluster_type=cluster_type)
-            if len(clusters.keys()) != 4:
-                raise Exception("The number of clusters was incorrect! Try checking "
-                               + "for similarity when generating features.")
+            num_clusters = len(clusters.keys())
+            if num_clusters != 4:
+                raise Exception(f"The number of clusters was incorrect! Expected {4} and got {num_clusters}."
+                                "Try checking for similarity when generating features.")
 
-            cluster_balancer = BalancedClusters(clusters,'optimal')
+            cluster_balancer = BalancedClusters(clusters, 'optimal')
             balanced_clusters = cluster_balancer.balance_clusters(verbose='none')
-            
+
             # call recursively on each quadrant
-            for i, key in enumerate(balanced_clusters.keys()): 
-                new_quadrant = i+1 # quadrants begin indexing at 1; assigned arbitrarily
+            for i, key in enumerate(balanced_clusters.keys()):
+                new_quadrant = i + 1  # quadrants begin indexing at 1; assigned arbitrarily
                 new_location_descriptor = location_descriptor.copy()
                 new_location_descriptor.add_pixel_direction(new_quadrant)
-                self._populate_image_with_feature_names(x_transpose_df=balanced_clusters[key],
-                                                  location_descriptor=new_location_descriptor)
+                self.__populate_image_with_feature_names_helper(balanced_clusters[key], cluster_type,
+                                                                new_location_descriptor)
+        return
+
+    def __populate_image_with_feature_names(self, x_transpose_df, cluster_type):
+        """
+        Groups feature names into an image by location; does so in-place to the instance variable
+        self._feature_name_image.
+        :param x_transpose_df:
+        :param cluster_type:
+        :return:
+        """
+        self.__populate_image_with_feature_names_helper(x_transpose_df, cluster_type, PixelLocation())
         return
     
     def __make_flattened_feature_name_image(self) -> None:
@@ -440,7 +464,7 @@ class ImageFromTable:
         self.__flattened_feature_name_image = column_names_strs
         return
     
-    def fit(self, features, cluster_type=_DEFAULT_CLUSTER_TYPE):
+    def fit(self, features, cluster_type=__DEFAULT_CLUSTER_TYPE):
         """
         summary
             Takes in features (X), NOT LABELS, and fits
@@ -460,7 +484,7 @@ class ImageFromTable:
         
         cat_col_names = fs.get_feature_names(FeatureDataTypes.Categorical)
         synthetic_features = PreprocessingTools.preprocess_data(synthetic_features, cat_col_names)
-        # synthetic_features has rows=examples, columns=features; transpose for _populate_image_with_feature_names
+        # synthetic_features has rows=examples, columns=features; transpose for __populate_image_with_feature_names
         synthetic_features_transpose = synthetic_features.transpose()
 
         # Initialize feature images
@@ -470,8 +494,8 @@ class ImageFromTable:
         self.__flattened_feature_name_image = self.__feature_name_image.flatten('C')
 
         # Do feature name thing to get image of feature names
-        self._populate_image_with_feature_names(synthetic_features_transpose,
-                                                cluster_type=cluster_type)
+        self.__populate_image_with_feature_names(synthetic_features_transpose,
+                                                 cluster_type=cluster_type)
         
         # Flatten feature name image to be 1D
         self.__make_flattened_feature_name_image()
@@ -515,28 +539,66 @@ class ImageFromTable:
 
         return scaled_features
 
-    @staticmethod
-    def __make_image(example: pd.Series, width: int, height: int, image_type: str) -> PIL.Image:
-        num_channels = None
-        if image_type == ImageTypes.RGB:
-            num_channels = 3
-        else:
-            raise Exception("Image type specified is no longer valid.")
-
-        # Reshape into width-by-height-by-num_channels 3D array
-        example_arr: np.array = example.values
-        image_arr = np.reshape(example_arr, (height, width, num_channels))
+    def __make_image(self, image_data: pd.Series) -> PIL.Image:
+        """
+        Creates a single image
+        :param image_data:
+        :return:
+        """
+        # Reshape into height-by-width-by-num_channels 3D array
+        example_arr: np.array = image_data.values
+        image_arr = np.reshape(example_arr, (self.__image_side_len, self.__image_side_len, self.__num_channels))
 
         # Convert into image
-        img = PIL.Image.fromarray(image_arr, image_type)
-
+        img = PIL.Image.fromarray(image_arr, self.__image_type)
         return img
 
-    @staticmethod
-    def show_image(example: pd.Series, width: int, height: int, image_type: str) -> None:
-        img = ImageFromTable.__make_image(example, width, height, image_type)
+    def show_image(self, image_data: pd.Series) -> None:
+        """
+        Shows a single image
+        :param image_data:
+        :return:
+        """
+        img = self.__make_image(image_data)
         img.show()
         return
+
+    def save_image(self, image_data: pd.Series, path: str) -> None:
+        """
+        Saves a single image
+        :param image_data:
+        :param path:
+        :return:
+        """
+        img: PIL.Image = self.__make_image(image_data)
+        img.save(path)
+        return
+
+    def save_all_images(self, image_data: pd.DataFrame, folder_path: str, image_names: np.array) -> None:
+        """
+        Saves all images to a specified folder.
+        :param image_data:
+        :param folder_path:
+        :param image_names:
+        :return:
+        """
+        assert isinstance(image_data, pd.DataFrame), 'Parameter "image_data" must be a pandas Dataframe.'
+        num_image_rows = image_data.shape[0]
+        assert num_image_rows == image_names.size, f'There are {image_data.shape[0]} potential images, and ' \
+            f'{image_names.size} image names were given.'
+
+        if not os.path.isdir(folder_path):
+            os.mkdir(folder_path)
+        else:
+            print(f'Warning: {folder_path} already exists, so new images will be added in with old images.')
+
+        # TODO: Speed up with cython for-loop, or even try to parallelize it
+        for i in range(num_image_rows):
+            image_path = os.path.join(folder_path, image_names[i])
+            self.save_image(image_data.iloc[i], image_path)
+
+        return
+
 
 if __name__ == '__main__':
     def make_examples_helper(n_rows):
@@ -564,17 +626,19 @@ if __name__ == '__main__':
     example_df, example_feature_names = make_examples_helper(100)
 
     # Fit an image to the data
-    image_side_len = 4
-    image_type = ImageTypes.RGB
-    image16by16by3 = ImageFromTable(example_feature_names, image_side_len = image_side_len, image_type = image_type)
-    image16by16by3.fit(example_df)
+    img_side_len = 4
+    img_type = ImageTypes.RGB
+    image16by16by3 = ImageFromTable(example_feature_names, image_side_len=img_side_len, image_type=img_type)
+    image16by16by3.fit(example_df, ClusterAlgos.Agglomerative)
 
     # Transform the image on new data
     new_example_features, _ = make_examples_helper(10)
     transformed_images = image16by16by3.transform(new_example_features)
 
-    # See one of the resulting images
-    first_image_series = transformed_images.iloc[0] # just use the first element as an example
-    ImageFromTable.show_image(first_image_series, image_side_len, image_side_len, image_type)
+    # See some of the resulting images
+    max_num_images_shown = 5
+    for i in range(min(transformed_images.shape[0], max_num_images_shown)):
+        image_series = transformed_images.iloc[i] # just use the first element as an example
+        image16by16by3.show_image(image_series)
 
     pass
