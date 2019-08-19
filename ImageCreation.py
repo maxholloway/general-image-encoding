@@ -1,6 +1,9 @@
 import random as rd
 import string
+
 import os
+import shutil
+
 import pandas as pd
 from typing import List, Tuple
 import PIL # keep it general, so as to be explicit when using the library
@@ -239,25 +242,33 @@ class ClusterAlgos:
     Agglomerative = 'agglomerative'
 
 
-class ClusterTools:
+class ImageFolderOptions:
+    Create_new_folder = 'create_new_folder'
+    Replace_old_folder = 'replace_old_folder'
+    Add_to_folder = 'add_to_folder'
+
+
+class _UniqueString:
 
     @staticmethod
-    def __get_unique_column_name_helper(column_names, _num_times_repeated=0) -> str:
+    def get_unique_string(names, num_chars: int = 10) -> str:
+        return _UniqueString.__get_unique_string_helper(names, num_chars, 0)
+
+    @staticmethod
+    def __get_unique_string_helper(names, num_characters: int, _num_times_repeated: int) -> str:
         '''
-        Given a collection of column names, generate a column name that is
-        not currently in the set of column names.
+        Given a collection, generate a string that is
+        not currently in the collection.
         '''
-        
+
         if _num_times_repeated > 5:
             raise Exception("Something's not right; get_unique_column_name_helper repeated over 5 times. "
-                           + f"There is an extremely tiny chance of this happening.")
-            return
+                            + f"There is an extremely tiny chance of this happening.")
         else:
             # the more characters, the less likely the method will need to repeat
-            num_characters = 30
-            rand_str = ClusterTools.__random_string_helper(num_characters)
-            if rand_str in column_names.values.tolist():
-                return ClusterTools.__get_unique_column_name_helper(column_names, _num_times_repeated + 1)
+            rand_str = _UniqueString.__random_string_helper(num_characters)
+            if rand_str in names:
+                return _UniqueString.__get_unique_string_helper(names, num_characters, _num_times_repeated + 1)
             else:
                 return rand_str
 
@@ -266,6 +277,9 @@ class ClusterTools:
         valid_characters = string.ascii_letters + string.digits
         chars = [rd.choice(valid_characters) for _ in range(num_chars)]
         return ''.join(chars)
+
+
+class ClusterTools:
 
     @staticmethod
     def make_clusters(inp_data: pd.DataFrame, num_clusters, cluster_type):
@@ -284,7 +298,7 @@ class ClusterTools:
         '''
         
         data: pd.DataFrame = inp_data.copy()
-        label_col_name = ClusterTools.__get_unique_column_name_helper(data.columns)
+        label_col_name = _UniqueString.get_unique_string(data.columns, num_chars=30)
         if cluster_type == ClusterAlgos.K_means:
             fit_kmeans = KMeans(num_clusters).fit(data)
             data[label_col_name] = fit_kmeans.labels_
@@ -309,7 +323,7 @@ class ImageFromTable:
     Objects that perform all actions to convert from tabular data to image data.
     """
 
-    __DEFAULT_CLUSTER_TYPE = ClusterAlgos.K_means
+    __DEFAULT_CLUSTER_TYPE = ClusterAlgos.Agglomerative
     __MAX_PIXELS_MAGIC_VALUE = -1
     
     def __init__(self, feature_types: FeatureTypes, image_type: str, image_side_len: int = 16):
@@ -574,12 +588,48 @@ class ImageFromTable:
         img.save(path)
         return
 
-    def save_all_images(self, image_data: pd.DataFrame, folder_path: str, image_names: np.array) -> None:
+    @staticmethod
+    def __make_new_folder_path_helper(original_folder_path: str) -> str:
+        """
+        Makes a random new folder path name.
+        :param self:
+        :param original_folder_path: this is the path that would be used if a folder with this path did not already
+                                     exist
+        :return:
+        """
+
+        def get_all_sub_directories(parent_folder_path: str):
+            """
+            Given a directory, get all of its subdirectories.
+            :param parent_folder_path:
+            :return:
+            """
+            adjacent_dir_names = []
+            try:
+                for name in os.listdir(parent_folder_path):
+                    full_folder_path = os.path.join(parent_folder_path, name)
+                    if os.path.isdir(full_folder_path):
+                        adjacent_dir_names.append(name)
+            except FileNotFoundError:
+                # Do nothing, just return that there are no sub_directories
+                pass
+            return adjacent_dir_names
+
+        parent_path = os.path.dirname(original_folder_path)
+        existing_dirs = get_all_sub_directories(parent_path)
+
+        new_folder_name = _UniqueString.get_unique_string(existing_dirs)
+
+        return os.path.join(parent_path, new_folder_name)
+
+    def save_all_images(self, image_data: pd.DataFrame, folder_path: str, image_names: np.array,
+                        image_folder_option: str = ImageFolderOptions.Create_new_folder) -> None:
         """
         Saves all images to a specified folder.
         :param image_data:
         :param folder_path:
         :param image_names:
+        :param image_folder_option:
         :return:
         """
         assert isinstance(image_data, pd.DataFrame), 'Parameter "image_data" must be a pandas Dataframe.'
@@ -587,10 +637,22 @@ class ImageFromTable:
         assert num_image_rows == image_names.size, f'There are {image_data.shape[0]} potential images, and ' \
             f'{image_names.size} image names were given.'
 
-        if not os.path.isdir(folder_path):
-            os.mkdir(folder_path)
+        # Possibly change local file system to store images as specified in "image_folder_options"
+        if os.path.isdir(folder_path):
+            if image_folder_option == ImageFolderOptions.Create_new_folder:
+                folder_path = ImageFromTable.__make_new_folder_path_helper(folder_path)
+                os.mkdir(folder_path)
+            elif image_folder_option == ImageFolderOptions.Add_to_folder:
+                print('Warning: folder already exists, and option is set to add to folder in '
+                      'ImageFromTable.save_all_images.')
+            elif image_folder_option == ImageFolderOptions.Replace_old_folder:
+                try:
+                    shutil.rmtree(folder_path)
+                    os.mkdir(folder_path)
+                except:
+                    print(f'An error occurred while trying to remove the following directory: {folder_path}')
         else:
-            print(f'Warning: {folder_path} already exists, so new images will be added in with old images.')
+            os.mkdir(folder_path)
 
         # TODO: Speed up with cython for-loop, or even try to parallelize it
         for i in range(num_image_rows):
