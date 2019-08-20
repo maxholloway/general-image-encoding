@@ -3,14 +3,17 @@ import string
 
 import os
 import shutil
+import json
+import datetime
 
-import pandas as pd
-from typing import List, Tuple
+from typing import List, Tuple, Dict
 import PIL # keep it general, so as to be explicit when using the library
 
+import pandas as pd
 import numpy as np
 from sklearn.cluster import KMeans, AgglomerativeClustering
 from sklearn.preprocessing import LabelEncoder, MinMaxScaler
+from sklearn.model_selection import train_test_split
 
 from BalancedClusters import BalancedClusters
 from FeatureSynthesis import FeatureSynthesis, FeatureTypes
@@ -239,7 +242,7 @@ class PreprocessingTools:
 
 class ClusterAlgos:
     K_means = 'k-means'
-    Agglomerative = 'agglomerative'
+    Hierarchical = 'agglomerative'
 
 
 class ImageFolderOptions:
@@ -302,7 +305,7 @@ class ClusterTools:
         if cluster_type == ClusterAlgos.K_means:
             fit_kmeans = KMeans(num_clusters).fit(data)
             data[label_col_name] = fit_kmeans.labels_
-        elif cluster_type == ClusterAlgos.Agglomerative:
+        elif cluster_type == ClusterAlgos.Hierarchical:
             fit_agglomerative: AgglomerativeClustering = AgglomerativeClustering(num_clusters).fit(data)
             data[label_col_name] = fit_agglomerative.labels_
         else:
@@ -322,9 +325,6 @@ class ImageFromTable:
     """
     Objects that perform all actions to convert from tabular data to image data.
     """
-
-    __DEFAULT_CLUSTER_TYPE = ClusterAlgos.Agglomerative
-    __MAX_PIXELS_MAGIC_VALUE = -1
     
     def __init__(self, feature_types: FeatureTypes, image_type: str, image_side_len: int = 16):
         """
@@ -354,6 +354,8 @@ class ImageFromTable:
         self.__feature_synthesizer: FeatureSynthesis = None
         self.__flattened_feature_name_image: List[str] = None
         return
+
+    __MAX_PIXELS_MAGIC_VALUE = -1
 
     @staticmethod
     def __valid_image_side_len(image_side_len, max_pixels=__MAX_PIXELS_MAGIC_VALUE) -> bool:
@@ -478,6 +480,8 @@ class ImageFromTable:
         self.__flattened_feature_name_image = column_names_strs
         return
     
+    __DEFAULT_CLUSTER_TYPE = ClusterAlgos.Hierarchical
+
     def fit(self, features, cluster_type=__DEFAULT_CLUSTER_TYPE):
         """
         summary
@@ -661,6 +665,85 @@ class ImageFromTable:
 
         return
 
+    __FILE_ENDING = 'png'
+
+    @staticmethod
+    def __make_image_name(index, label, file_ending: str = __FILE_ENDING) -> str:
+        """
+
+        :param index: a unique number ascribed to the image in the directory it'll be stored in
+        :param label: the label associated with the image
+        :param file_ending: file ending, WITHOUT a period preceding it
+        :return:
+        """
+        if isinstance(label, np.int64):
+            label = int(label)
+        serialized_dict = {'i': index, 'label': label}
+        return json.dumps(serialized_dict) + '.' + file_ending
+
+    @staticmethod
+    def __get_image_properties(image_name: str, file_ending: str = __FILE_ENDING) -> Dict:
+        """
+        Given the name of an image, get its
+        :param image_name: full image name, including its ending
+        :param file_ending: file ending, WITHOUT a period preceding it
+        :return:
+        """
+        # Remove file ending from image name
+        num_chars_to_remove = 1 + len(file_ending) # file ending, plus one the period preceding it
+        image_name = image_name[:-num_chars_to_remove]
+        return json.loads(image_name)
+
+    @staticmethod
+    def __log(message: str) -> None:
+        print(f'{datetime.datetime.now().time()}: {message}')
+
+    @staticmethod
+    def create_images(all_data: pd.DataFrame, label_col_name: str, feature_types: FeatureTypes,
+                      transform_prop: float = 0.1, image_side_length: int = 4, image_type: str = ImageTypes.RGB,
+                      transform_image_folder_full_path: str = os.path.join(os.getcwd(), 'Images'),
+                      transform_image_names: np.array = None,
+                      image_folder_option: str = ImageFolderOptions.Create_new_folder,
+                      cluster_type: str = ClusterAlgos.Hierarchical, verbose: bool = False):
+
+        # Split into fit and transform data; the two must be entirely separate, in order to avoid an info leak
+        if verbose: print(f'{ImageFromTable.__current_time()}: Formatting data.')
+        all_features = all_data.drop(columns=[label_col_name])
+        all_labels = all_data[label_col_name]
+
+        # Allow fitting on specified proportion of the data, and then allow the other 90% to be transformed into images
+        fit_features, transform_features, fit_labels, transform_labels = train_test_split(all_features, all_labels,
+                                                                                          train_size=transform_prop)
+        assert (fit_features.shape[0] >= 1) and (transform_features.shape[0] >= 1), \
+            "There were not enough examples given."
+
+        # Set variables
+        if transform_image_names is None:
+            num_transformed_images = transform_features.shape[0]
+            transform_image_names = np.array([ImageFromTable.__make_image_name(i, transform_labels.iloc[i])
+                                              for i in range(num_transformed_images)])
+
+        # Create ImageFromTable object
+        if verbose: ImageFromTable.__log(f'Fitting on {(1 - transform_prop) * 100}% of the data.')
+        img_from_table = ImageFromTable(feature_types=feature_types, image_side_len=image_side_length,
+                                        image_type=image_type)
+        img_from_table.fit(fit_features, cluster_type=cluster_type)
+
+        # Transform the object
+        if verbose: ImageFromTable.__log(f'Transforming the remaining {(transform_prop * 100)}% '
+                                         f'of the data into images.')
+        images: pd.DataFrame = img_from_table.transform(transform_features)
+
+        # Show the first image that was created
+        if verbose:
+            first_image: pd.Series = images.iloc[0]
+            img_from_table.show_image(first_image)
+
+        # Save all of the images that were created
+        if verbose: ImageFromTable.__log('Saving the transformed images.')
+        img_from_table.save_all_images(images, transform_image_folder_full_path, transform_image_names,
+                                       image_folder_option=image_folder_option)
+        return
 
 if __name__ == '__main__':
     def make_examples_helper(n_rows):
@@ -691,7 +774,7 @@ if __name__ == '__main__':
     img_side_len = 4
     img_type = ImageTypes.RGB
     image16by16by3 = ImageFromTable(example_feature_names, image_side_len=img_side_len, image_type=img_type)
-    image16by16by3.fit(example_df, ClusterAlgos.Agglomerative)
+    image16by16by3.fit(example_df, ClusterAlgos.Hierarchical)
 
     # Transform the image on new data
     new_example_features, _ = make_examples_helper(10)
